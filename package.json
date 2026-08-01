@@ -1,6 +1,6 @@
 {
   "name": "web_fetch",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Playwright-based external web and PDF loader for OpenWebUI",
   "type": "module",
   "private": false,

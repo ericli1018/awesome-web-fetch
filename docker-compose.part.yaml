@@ -67,12 +67,14 @@ services:
 
           if [ ! -d "$${REPO_DIR}/.git" ]; then
             echo "[git] Cloning $${GIT_REPOSITORY} branch $${BRANCH}"
-            rm -rf "$${REPO_DIR}"
+            mkdir -p "$${REPO_DIR}"
+            find "$${REPO_DIR}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+            cd "$${REPO_DIR}"
             git clone \
               --depth "$${DEPTH}" \
               --branch "$${BRANCH}" \
               "$${GIT_REPOSITORY}" \
-              "$${REPO_DIR}"
+              "."
           fi
 
           cd "$${REPO_DIR}"

@@ -86,7 +86,7 @@ docker compose -f docker-compose.part.yaml restart web_fetch
 每次容器啟動會執行：
 
 1. 安裝 Git 與 CA certificates。
-2. 初次執行時 clone repository。
+2. 初次執行時保留 Named Volume 掛載點，只清除其中內容，再 clone repository。
 3. 後續執行時 fetch 並 reset 到 `origin/main`。
 4. 執行 `npm install --omit=dev`。
 5. 執行 `playwright install --with-deps chromium`。

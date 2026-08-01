@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 - 2026-08-01
+
+- 修正 Named Volume 掛載點 `/workspace/repository` 被 `rm -rf` 刪除時產生 `Device or resource busy`。
+- 初次 clone 改為只清除掛載點內部內容，並在該目錄內執行 `git clone ... .`。
+- 加入 Compose bootstrap 回歸測試。
+
 ## 0.1.0 - 2026-08-01
 
 - 建立 Node.js + Playwright web loader。
