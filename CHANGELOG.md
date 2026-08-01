@@ -1,10 +1,16 @@
 # Changelog
 
+## 0.2.0 - 2026-08-01
+
+- HTML 與 PDF metadata 新增 `content_type`、`final_url`、`status_code`。
+- 新增 `browser_rendered`，區分 Chromium 渲染與 direct fetch。
+- 失敗結果也保留固定 metadata schema；無 HTTP 回應時 `status_code` 為 `null`。
+- 保留 `type` 欄位以相容既有整合。
+
 ## 0.1.1 - 2026-08-01
 
-- 修正 Named Volume 掛載點 `/workspace/repository` 被 `rm -rf` 刪除時產生 `Device or resource busy`。
-- 初次 clone 改為只清除掛載點內部內容，並在該目錄內執行 `git clone ... .`。
-- 加入 Compose bootstrap 回歸測試。
+- 修正 Compose bootstrap 嘗試刪除 repository volume 掛載點的錯誤。
+- 改為只清除掛載點內部內容後執行 `git clone ... .`。
 
 ## 0.1.0 - 2026-08-01
 

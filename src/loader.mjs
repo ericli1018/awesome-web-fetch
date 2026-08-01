@@ -3,6 +3,7 @@ import { addExtra } from 'playwright-extra';
 import { chromium as playwrightChromium } from 'playwright';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { assertAllowedUrl } from './url-policy.mjs';
+import { createMetadata } from './metadata.mjs';
 
 const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
@@ -129,13 +130,21 @@ export async function createWebLoader(config) {
     }
   }
 
-  async function fetchPdf(url) {
+  async function fetchPdf(sourceUrl, requestUrl = sourceUrl) {
+    let finalUrl = requestUrl;
+    let contentType = '';
+    let statusCode = null;
+
     try {
-      const { response, finalUrl } = await fetchWithRedirects(
-        url,
+      const result = await fetchWithRedirects(
+        requestUrl,
         { method: 'GET', headers: requestHeaders() },
         config.fetchTimeout,
       );
+      const { response } = result;
+      finalUrl = result.finalUrl;
+      contentType = response.headers.get('content-type') || '';
+      statusCode = response.status;
 
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const buffer = await readResponseBuffer(response, config.maxPdfBytes);
@@ -143,17 +152,28 @@ export async function createWebLoader(config) {
 
       return {
         page_content: (data.text || '').trim().slice(0, config.maxChars),
-        metadata: {
-          source: url,
-          final_url: finalUrl,
+        metadata: createMetadata({
+          source: sourceUrl,
+          finalUrl,
           title: `PDF (${data.numpages || 0} pages)`,
+          contentType: contentType || 'application/pdf',
+          statusCode,
+          browserRendered: false,
           type: 'pdf',
-        },
+        }),
       };
     } catch (error) {
       return {
         page_content: '',
-        metadata: { source: url, type: 'pdf', error: `PDF error: ${error.message}` },
+        metadata: createMetadata({
+          source: sourceUrl,
+          finalUrl,
+          contentType,
+          statusCode,
+          browserRendered: false,
+          type: 'pdf',
+          error: `PDF error: ${error.message}`,
+        }),
       };
     }
   }
@@ -176,6 +196,9 @@ export async function createWebLoader(config) {
     const page = await context.newPage();
     let downloadTriggered = false;
     let blockedNavigation = '';
+    let finalUrl = url;
+    let contentType = '';
+    let statusCode = null;
 
     await page.route('**/*', async (route) => {
       const request = route.request();
@@ -202,12 +225,15 @@ export async function createWebLoader(config) {
         waitUntil: 'domcontentloaded',
       });
 
-      if (blockedNavigation) throw new Error(blockedNavigation);
-      if (downloadTriggered) return fetchPdf(url);
+      finalUrl = page.url() || response?.url() || url;
+      statusCode = response?.status() ?? null;
+      contentType = (await response?.headerValue('content-type')) || '';
 
-      const contentType = (await response?.headerValue('content-type')) || '';
+      if (blockedNavigation) throw new Error(blockedNavigation);
+      if (downloadTriggered) return fetchPdf(url, finalUrl);
+
       if (contentType.toLowerCase().includes('application/pdf')) {
-        return fetchPdf(page.url() || url);
+        return fetchPdf(url, finalUrl);
       }
 
       await page
@@ -221,18 +247,32 @@ export async function createWebLoader(config) {
 
       return {
         page_content: (text || '').trim().slice(0, config.maxChars),
-        metadata: {
+        metadata: createMetadata({
           source: url,
-          final_url: page.url() || url,
-          title: title || '',
+          finalUrl,
+          title,
+          contentType: contentType || 'text/html',
+          statusCode,
+          browserRendered: true,
           type: 'html',
-        },
+        }),
       };
     } catch (error) {
-      if (error.message.includes('Download is starting')) return fetchPdf(url);
+      if (error.message.includes('Download is starting')) return fetchPdf(url, finalUrl);
+      const currentUrl = page.url();
+      if (/^https?:\/\//i.test(currentUrl)) finalUrl = currentUrl;
+
       return {
         page_content: '',
-        metadata: { source: url, type: 'html', error: error.message },
+        metadata: createMetadata({
+          source: url,
+          finalUrl,
+          contentType,
+          statusCode,
+          browserRendered: true,
+          type: 'html',
+          error: error.message,
+        }),
       };
     } finally {
       await context.close();
@@ -247,7 +287,14 @@ export async function createWebLoader(config) {
     } catch (error) {
       return {
         page_content: '',
-        metadata: { source: url, error: error.message },
+        metadata: createMetadata({
+          source: url,
+          finalUrl: url,
+          statusCode: null,
+          contentType: '',
+          browserRendered: false,
+          error: error.message,
+        }),
       };
     }
   }

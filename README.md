@@ -86,7 +86,7 @@ docker compose -f docker-compose.part.yaml restart web_fetch
 每次容器啟動會執行：
 
 1. 安裝 Git 與 CA certificates。
-2. 初次執行時保留 Named Volume 掛載點，只清除其中內容，再 clone repository。
+2. 初次執行時 clone repository。
 3. 後續執行時 fetch 並 reset 到 `origin/main`。
 4. 執行 `npm install --omit=dev`。
 5. 執行 `playwright install --with-deps chromium`。
@@ -143,11 +143,27 @@ curl http://localhost:3005/ \
       "source": "https://example.com",
       "final_url": "https://example.com/",
       "title": "Example Domain",
+      "content_type": "text/html",
+      "status_code": 200,
+      "browser_rendered": true,
       "type": "html"
     }
   }
 ]
 ```
+
+### Metadata 欄位
+
+每筆結果都會提供：
+
+- `source`：原始請求 URL。
+- `final_url`：完成重新導向後的最終 URL。
+- `title`：頁面標題或 PDF 頁數說明。
+- `content_type`：HTTP `Content-Type` 的 media type，例如 `text/html`、`application/pdf`。
+- `status_code`：最終 HTTP 狀態碼；連線或 DNS 階段失敗時為 `null`。
+- `browser_rendered`：HTML 經 Chromium 渲染時為 `true`；PDF/direct fetch 為 `false`。
+- `type`：相容舊版使用的 `html` 或 `pdf`。
+- `error`：失敗時提供錯誤訊息。
 
 OpenWebUI 與本服務使用同一個 Docker network 時，服務網址為：
 
