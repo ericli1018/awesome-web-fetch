@@ -1,0 +1,23 @@
+{
+  "name": "web_fetch",
+  "version": "0.1.0",
+  "description": "Playwright-based external web and PDF loader for OpenWebUI",
+  "type": "module",
+  "private": false,
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs",
+    "check": "node --check index.mjs && node --check src/config.mjs && node --check src/http-server.mjs && node --check src/loader.mjs && node --check src/url-policy.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "pdf-parse": "1.1.4",
+    "playwright": "1.58.2",
+    "playwright-extra": "4.3.6",
+    "puppeteer-extra-plugin-stealth": "2.11.2"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,144 @@
+services:
+  web_fetch:
+    image: node:24-bookworm-slim
+    container_name: web_fetch
+    hostname: web_fetch
+    restart: unless-stopped
+    init: true
+    user: root
+    working_dir: /workspace
+    shm_size: "1gb"
+
+    environment:
+      # GitHub auto-update
+      GIT_REPOSITORY: "https://github.com/ericli1018/awesome-web-fetch.git"
+      GIT_BRANCH: "main"
+      GIT_COMMIT: "${WEB_FETCH_GIT_COMMIT:-}"
+      GIT_DEPTH: "1"
+      UPDATE_REQUIRED: "false"
+
+      # Node / npm / Playwright
+      NODE_ENV: "production"
+      NPM_CONFIG_CACHE: "/root/.npm"
+      NPM_CONFIG_UPDATE_NOTIFIER: "false"
+      PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright"
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      TZ: "Asia/Taipei"
+
+      # web_fetch application
+      PORT: "3000"
+      API_KEY: "${WEB_FETCH_API_KEY:-dummy}"
+      BATCH_SIZE: "3"
+      MAX_CHARS: "10000"
+      MAX_URLS: "20"
+      MAX_BODY_BYTES: "262144"
+      MAX_PDF_BYTES: "20971520"
+      GOTO_TIMEOUT: "8000"
+      WAIT_TIMEOUT: "8000"
+      HEAD_TIMEOUT: "5000"
+      FETCH_TIMEOUT: "15000"
+      MAX_REDIRECTS: "5"
+      ALLOW_PRIVATE_NETWORK: "false"
+      LOCALE: "zh-TW"
+      TIMEZONE: "Asia/Taipei"
+      ACCEPT_LANGUAGE: "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7"
+      USER_AGENT: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+
+    volumes:
+      - web_fetch_repository:/workspace/repository
+      - web_fetch_npm_cache:/root/.npm
+      - web_fetch_playwright_cache:/ms-playwright
+
+    command:
+      - /bin/bash
+      - -lc
+      - |
+          set -Eeuo pipefail
+
+          export DEBIAN_FRONTEND=noninteractive
+          REPO_DIR="/workspace/repository"
+          BRANCH="$${GIT_BRANCH:-main}"
+          DEPTH="$${GIT_DEPTH:-1}"
+
+          echo "[bootstrap] Installing Git and CA certificates"
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+          rm -rf /var/lib/apt/lists/*
+
+          if [ ! -d "$${REPO_DIR}/.git" ]; then
+            echo "[git] Cloning $${GIT_REPOSITORY} branch $${BRANCH}"
+            rm -rf "$${REPO_DIR}"
+            git clone \
+              --depth "$${DEPTH}" \
+              --branch "$${BRANCH}" \
+              "$${GIT_REPOSITORY}" \
+              "$${REPO_DIR}"
+          fi
+
+          cd "$${REPO_DIR}"
+          git remote set-url origin "$${GIT_REPOSITORY}"
+
+          UPDATE_OK="true"
+          if ! git fetch --prune --depth "$${DEPTH}" origin "$${BRANCH}"; then
+            UPDATE_OK="false"
+          fi
+
+          if [ "$${UPDATE_OK}" = "true" ]; then
+            if [ -n "$${GIT_COMMIT:-}" ]; then
+              echo "[git] Checking out commit $${GIT_COMMIT}"
+              git fetch --depth 1 origin "$${GIT_COMMIT}" || true
+              git checkout --detach "$${GIT_COMMIT}"
+              git reset --hard "$${GIT_COMMIT}"
+            else
+              echo "[git] Updating to origin/$${BRANCH}"
+              git checkout -B "$${BRANCH}" "origin/$${BRANCH}"
+              git reset --hard "origin/$${BRANCH}"
+            fi
+          elif [ "$${UPDATE_REQUIRED:-false}" = "true" ]; then
+            echo "[git] Update failed and UPDATE_REQUIRED=true" >&2
+            exit 1
+          else
+            echo "[git] WARNING: update failed; using cached revision"
+          fi
+
+          test -f package.json
+          test -f index.mjs
+
+          echo "[git] Current commit: $$(git rev-parse HEAD)"
+          echo "[npm] Installing application dependencies"
+          npm install --omit=dev --no-audit --no-fund
+
+          echo "[playwright] Installing Chromium and required Debian packages"
+          npx playwright install --with-deps chromium
+
+          npm run check
+          exec npm start
+
+    ports:
+      - "3005:3000"
+
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:3000/healthz')
+          .then(response => process.exit(response.ok ? 0 : 1))
+          .catch(() => process.exit(1))
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
+
+    networks:
+      - ai_suite_network
+
+volumes:
+  web_fetch_repository:
+  web_fetch_npm_cache:
+  web_fetch_playwright_cache:
+
+networks:
+  ai_suite_network:
+    external: true
