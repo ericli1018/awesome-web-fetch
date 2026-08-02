@@ -27,3 +27,12 @@ test('compose persists PDF cache and configures its TTL', async () => {
   assert.match(compose, /web_fetch_pdf_cache:\/data\/pdf-cache/);
   assert.match(compose, /\n\s{2}web_fetch_pdf_cache:\s*\n/);
 });
+
+test('compose enables remote MCP with a separate key and no additional container', async () => {
+  const compose = await readCompose();
+
+  assert.match(compose, /MCP_ENABLED:\s*"true"/);
+  assert.match(compose, /MCP_PATH:\s*"\/mcp"/);
+  assert.match(compose, /MCP_API_KEY:\s*"\$\{WEB_FETCH_MCP_API_KEY:-dummy\}"/);
+  assert.equal((compose.match(/^\s{2}web_fetch:\s*$/gm) || []).length, 1);
+});

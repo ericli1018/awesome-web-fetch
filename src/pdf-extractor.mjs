@@ -1,3 +1,5 @@
+import { truncateContent } from './content.mjs';
+
 async function withPdfParser(buffer, callback) {
   const { PDFParse } = await import('pdf-parse');
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
@@ -55,21 +57,27 @@ export async function extractPdfContent({
 }) {
   if (pages === null || pages === undefined) {
     const data = await fullDocumentParser(buffer);
+    const content = truncateContent(data.text, maxChars);
     return {
-      text: (data.text || '').trim().slice(0, maxChars),
+      text: content.text,
       totalPages: Number.isInteger(data.numpages) ? data.numpages : 0,
       requestedPages: null,
       extractedPages: 'all',
       extractionMode: 'full_document',
+      contentLength: content.contentLength,
+      truncated: content.truncated,
     };
   }
 
   const data = await selectedPagesParser(buffer, pages);
+  const content = truncateContent(data.text, maxChars);
   return {
-    text: (data.text || '').trim().slice(0, maxChars),
+    text: content.text,
     totalPages: data.totalPages,
     requestedPages: pages,
     extractedPages: data.extractedPages,
     extractionMode: 'selected_pages',
+    contentLength: content.contentLength,
+    truncated: content.truncated,
   };
 }

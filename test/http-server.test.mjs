@@ -115,3 +115,141 @@ test('POST forwards selected PDF pages to fetchMany', async () => {
     ]);
   });
 });
+
+test('POST /mcp uses the dedicated MCP bearer key and returns JSON-RPC', async () => {
+  const mcpConfig = {
+    ...config,
+    mcpEnabled: true,
+    mcpPath: '/mcp',
+    mcpApiKey: 'mcp-secret',
+  };
+
+  await withServer({
+    config: mcpConfig,
+    fetchMany: async () => [],
+    mcpHandler: async (message) => ({
+      jsonrpc: '2.0',
+      id: message.id,
+      result: { protocolVersion: message.params.protocolVersion },
+    }),
+  }, async (baseUrl) => {
+    const unauthorized = await fetch(`${baseUrl}/mcp`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer secret',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2025-06-18' },
+      }),
+    });
+    assert.equal(unauthorized.status, 401);
+
+    const response = await fetch(`${baseUrl}/mcp`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer mcp-secret',
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: { protocolVersion: '2025-06-18' },
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /application\/json/);
+    const body = await response.json();
+    assert.equal(body.result.protocolVersion, '2025-06-18');
+  });
+});
+
+test('MCP initialized notification receives HTTP 202 with no JSON-RPC body', async () => {
+  const mcpConfig = {
+    ...config,
+    mcpEnabled: true,
+    mcpPath: '/mcp',
+    mcpApiKey: 'mcp-secret',
+  };
+
+  await withServer({
+    config: mcpConfig,
+    fetchMany: async () => [],
+    mcpHandler: async () => null,
+  }, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/mcp`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer mcp-secret',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        method: 'notifications/initialized',
+      }),
+    });
+
+    assert.equal(response.status, 202);
+    assert.equal(await response.text(), '');
+  });
+});
+
+test('invalid MCP JSON returns a JSON-RPC parse error', async () => {
+  const mcpConfig = {
+    ...config,
+    mcpEnabled: true,
+    mcpPath: '/mcp',
+    mcpApiKey: 'mcp-secret',
+  };
+
+  await withServer({
+    config: mcpConfig,
+    fetchMany: async () => [],
+    mcpHandler: async () => null,
+  }, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/mcp`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer mcp-secret',
+        'content-type': 'application/json',
+      },
+      body: '{broken',
+    });
+
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.equal(body.jsonrpc, '2.0');
+    assert.equal(body.error.code, -32700);
+  });
+});
+
+test('disabled MCP path returns 404 instead of falling through to REST', async () => {
+  const mcpConfig = {
+    ...config,
+    mcpEnabled: false,
+    mcpPath: '/mcp',
+    mcpApiKey: 'mcp-secret',
+  };
+
+  await withServer({
+    config: mcpConfig,
+    fetchMany: async () => [],
+  }, async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/mcp`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer secret',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+    });
+
+    assert.equal(response.status, 404);
+  });
+});

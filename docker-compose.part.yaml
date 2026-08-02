@@ -28,6 +28,12 @@ services:
       # web_fetch application
       PORT: "3000"
       API_KEY: "${WEB_FETCH_API_KEY:-dummy}"
+      MCP_ENABLED: "true"
+      MCP_PATH: "/mcp"
+      MCP_API_KEY: "${WEB_FETCH_MCP_API_KEY:-dummy}"
+      MCP_MAX_PAGES: "50"
+      MCP_SERVER_NAME: "awesome-web-fetch"
+      MCP_SERVER_VERSION: "0.4.0"
       BATCH_SIZE: "3"
       MAX_CHARS: "10000"
       MAX_URLS: "20"

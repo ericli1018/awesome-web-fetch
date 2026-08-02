@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 - 2026-08-02
+
+- 新增遠端 MCP endpoint：`POST /mcp`。
+- 採 stateless JSON response 模式，MCP 與 REST 共用同一 Node process。
+- MCP 只公開 `fetch_url`，HTML、PDF 全文與 PDF 指定頁共用同一工具。
+- Tool description 強制已知 URL 優先使用 MCP，並區分 `web_search` 的 URL discovery 職責。
+- 新增獨立 `MCP_API_KEY`、`MCP_PATH`、`MCP_MAX_PAGES` 等設定。
+- MCP 一般 URL 失敗回 `ok: false`，不誤標為 MCP Server error。
+- 新增 `content_length` 與 `truncated`。
+- 新增 Hermes config、SOUL URL routing 與 Nginx HTTPS reverse proxy 範例。
+- Remote MCP initialize、tools/list、tools/call 完整 HTTP 流程加入測試。
+
 ## 0.3.0 - 2026-08-01
 
 - PDF request 支援 `{ "url": "...", "pages": 3 }` 與 `pages` 陣列。

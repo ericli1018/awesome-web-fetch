@@ -1,0 +1,19 @@
+# Merge this block into ~/.hermes/config.yaml on the Hermes Agent machine.
+# Replace the URL and Bearer token with your public HTTPS endpoint and MCP key.
+
+mcp_servers:
+  web_fetch:
+    url: "https://web-fetch.example.com/mcp"
+
+    headers:
+      Authorization: "Bearer REPLACE_WITH_WEB_FETCH_MCP_API_KEY"
+
+    timeout: 180
+    connect_timeout: 30
+    supports_parallel_tool_calls: false
+
+    tools:
+      include:
+        - fetch_url
+      resources: false
+      prompts: false

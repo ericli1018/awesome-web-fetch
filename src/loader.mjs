@@ -5,6 +5,7 @@ import { assertAllowedUrl } from './url-policy.mjs';
 import { createMetadata } from './metadata.mjs';
 import { createPdfCache } from './pdf-cache.mjs';
 import { extractPdfContent } from './pdf-extractor.mjs';
+import { truncateContent } from './content.mjs';
 
 function isRedirectStatus(status) {
   return [301, 302, 303, 307, 308].includes(status);
@@ -172,6 +173,8 @@ export async function createWebLoader(config) {
 
       return {
         page_content: extracted.text,
+        content_length: extracted.contentLength,
+        truncated: extracted.truncated,
         metadata: createMetadata({
           source: sourceUrl,
           finalUrl: cacheEntry.finalUrl,
@@ -192,6 +195,8 @@ export async function createWebLoader(config) {
     } catch (error) {
       return {
         page_content: '',
+        content_length: 0,
+        truncated: false,
         metadata: createMetadata({
           source: sourceUrl,
           finalUrl: cacheEntry?.finalUrl || requestUrl,
@@ -279,9 +284,12 @@ export async function createWebLoader(config) {
 
       const text = await page.evaluate(() => document.body?.innerText ?? '').catch(() => '');
       const title = await page.title().catch(() => '');
+      const content = truncateContent(text, config.maxChars);
 
       return {
-        page_content: (text || '').trim().slice(0, config.maxChars),
+        page_content: content.text,
+        content_length: content.contentLength,
+        truncated: content.truncated,
         metadata: createMetadata({
           source: url,
           finalUrl,
@@ -299,6 +307,8 @@ export async function createWebLoader(config) {
 
       return {
         page_content: '',
+        content_length: 0,
+        truncated: false,
         metadata: createMetadata({
           source: url,
           finalUrl,
@@ -325,6 +335,8 @@ export async function createWebLoader(config) {
     } catch (error) {
       return {
         page_content: '',
+        content_length: 0,
+        truncated: false,
         metadata: createMetadata({
           source: url,
           finalUrl: url,
@@ -348,6 +360,7 @@ export async function createWebLoader(config) {
   }
 
   return {
+    fetchOne: fetchUrl,
     fetchMany,
     status: () => ({
       browser: browserVersion,

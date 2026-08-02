@@ -1,11 +1,17 @@
 import { createServer } from 'node:http';
 
-function sendJson(response, statusCode, payload) {
+function sendJson(response, statusCode, payload, headers = {}) {
   response.writeHead(statusCode, {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
+    ...headers,
   });
   response.end(JSON.stringify(payload));
+}
+
+function sendEmpty(response, statusCode) {
+  response.writeHead(statusCode, { 'cache-control': 'no-store' });
+  response.end();
 }
 
 async function readJsonBody(request, maxBodyBytes) {
@@ -77,19 +83,92 @@ export function normalizeFetchTargets(value, maxUrls) {
   });
 }
 
-export function createWebFetchServer({ config, fetchMany, statusProvider = () => ({}) }) {
+function unauthorizedMcp(response) {
+  sendJson(response, 401, {
+    jsonrpc: '2.0',
+    id: null,
+    error: { code: -32001, message: 'Unauthorized' },
+  }, { 'www-authenticate': 'Bearer' });
+}
+
+export function createWebFetchServer({
+  config,
+  fetchMany,
+  statusProvider = () => ({}),
+  mcpHandler,
+}) {
   if (typeof fetchMany !== 'function') {
     throw new TypeError('fetchMany must be a function');
   }
 
   return createServer(async (request, response) => {
     try {
+      const requestUrl = new URL(request.url || '/', 'http://127.0.0.1');
+      const isMcpPath = requestUrl.pathname === config.mcpPath;
+      const isMcpRequest = Boolean(config.mcpEnabled && isMcpPath);
+
+      if (isMcpPath && !config.mcpEnabled) {
+        sendJson(response, 404, { error: 'MCP is disabled' });
+        return;
+      }
+
+      if (isMcpRequest) {
+        if (request.method !== 'POST') {
+          sendJson(response, 405, {
+            jsonrpc: '2.0',
+            id: null,
+            error: { code: -32600, message: 'Only POST is supported by this stateless MCP endpoint' },
+          }, { allow: 'POST' });
+          return;
+        }
+
+        const authorization = request.headers.authorization || '';
+        if (config.mcpApiKey !== 'dummy' && authorization !== `Bearer ${config.mcpApiKey}`) {
+          unauthorizedMcp(response);
+          return;
+        }
+        if (typeof mcpHandler !== 'function') {
+          sendJson(response, 503, {
+            jsonrpc: '2.0',
+            id: null,
+            error: { code: -32603, message: 'MCP service is unavailable' },
+          });
+          return;
+        }
+
+        let message;
+        try {
+          message = await readJsonBody(request, config.maxBodyBytes);
+        } catch (error) {
+          const code = error.statusCode === 413 ? -32600 : -32700;
+          sendJson(response, error.statusCode || 400, {
+            jsonrpc: '2.0',
+            id: null,
+            error: {
+              code,
+              message: code === -32700 ? 'Parse error' : error.message,
+            },
+          });
+          return;
+        }
+
+        const reply = await mcpHandler(message);
+        if (reply === null || reply === undefined) {
+          sendEmpty(response, 202);
+        } else {
+          sendJson(response, 200, reply);
+        }
+        return;
+      }
+
       if (request.method === 'GET') {
         sendJson(response, 200, {
           status: 'ok',
           batch_size: config.batchSize,
           max_chars: config.maxChars,
           max_urls: config.maxUrls,
+          mcp_enabled: Boolean(config.mcpEnabled),
+          mcp_path: config.mcpEnabled ? config.mcpPath : null,
           ...statusProvider(),
         });
         return;

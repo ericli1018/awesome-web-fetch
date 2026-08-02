@@ -22,6 +22,8 @@ test('extractPdfContent uses legacy full-document parser when pages are omitted'
     requestedPages: null,
     extractedPages: 'all',
     extractionMode: 'full_document',
+    contentLength: 18,
+    truncated: false,
   });
 });
 
@@ -49,6 +51,8 @@ test('extractPdfContent uses selected-page parser only when pages are provided',
     requestedPages: [2, 4],
     extractedPages: [2, 4],
     extractionMode: 'selected_pages',
+    contentLength: 14,
+    truncated: false,
   });
 });
 
@@ -74,4 +78,18 @@ test('extractPdfContent reports out-of-range pages', async () => {
       return true;
     },
   );
+});
+
+
+test('extractPdfContent reports truncation for long PDF text', async () => {
+  const result = await extractPdfContent({
+    buffer: Buffer.from('fake'),
+    pages: null,
+    maxChars: 4,
+    fullDocumentParser: async () => ({ text: '123456', numpages: 1 }),
+  });
+
+  assert.equal(result.text, '1234');
+  assert.equal(result.contentLength, 4);
+  assert.equal(result.truncated, true);
 });

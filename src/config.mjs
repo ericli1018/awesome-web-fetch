@@ -7,6 +7,13 @@ function positiveInteger(env, name, fallback) {
   return value;
 }
 
+function mcpPathValue(env) {
+  const value = env.MCP_PATH || '/mcp';
+  if (!value.startsWith('/')) throw new Error('MCP_PATH must start with /');
+  if (value.length > 1 && value.endsWith('/')) return value.slice(0, -1);
+  return value;
+}
+
 function booleanValue(env, name, fallback) {
   const raw = env[name];
   if (raw === undefined || raw === '') return fallback;
@@ -16,9 +23,10 @@ function booleanValue(env, name, fallback) {
 }
 
 export function loadConfig(env = process.env) {
+  const apiKey = env.API_KEY || 'dummy';
   return Object.freeze({
     port: positiveInteger(env, 'PORT', 3000),
-    apiKey: env.API_KEY || 'dummy',
+    apiKey,
     batchSize: positiveInteger(env, 'BATCH_SIZE', 3),
     maxChars: positiveInteger(env, 'MAX_CHARS', 10000),
     maxUrls: positiveInteger(env, 'MAX_URLS', 20),
@@ -36,5 +44,11 @@ export function loadConfig(env = process.env) {
     timezone: env.TIMEZONE || 'Asia/Taipei',
     acceptLanguage: env.ACCEPT_LANGUAGE || 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
     userAgent: env.USER_AGENT || '',
+    mcpEnabled: booleanValue(env, 'MCP_ENABLED', true),
+    mcpPath: mcpPathValue(env),
+    mcpApiKey: env.MCP_API_KEY || apiKey,
+    mcpMaxPages: positiveInteger(env, 'MCP_MAX_PAGES', 50),
+    mcpServerName: env.MCP_SERVER_NAME || 'awesome-web-fetch',
+    mcpServerVersion: env.MCP_SERVER_VERSION || '0.4.0',
   });
 }
