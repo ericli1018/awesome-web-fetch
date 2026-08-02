@@ -1,12 +1,10 @@
-import { createRequire } from 'node:module';
 import { addExtra } from 'playwright-extra';
 import { chromium as playwrightChromium } from 'playwright';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import { assertAllowedUrl } from './url-policy.mjs';
 import { createMetadata } from './metadata.mjs';
-
-const require = createRequire(import.meta.url);
-const pdfParse = require('pdf-parse');
+import { createPdfCache } from './pdf-cache.mjs';
+import { extractPdfContent } from './pdf-extractor.mjs';
 
 function isRedirectStatus(status) {
   return [301, 302, 303, 307, 308].includes(status);
@@ -53,9 +51,17 @@ async function readResponseBuffer(response, maxBytes) {
   return Buffer.concat(chunks, total);
 }
 
+function normalizeTarget(target) {
+  return typeof target === 'string' ? { url: target, pages: null } : target;
+}
+
 export async function createWebLoader(config) {
   const chromium = addExtra(playwrightChromium);
   chromium.use(StealthPlugin());
+  const pdfCache = createPdfCache({
+    directory: config.pdfCacheDir,
+    ttlSeconds: config.pdfCacheTtlSeconds,
+  });
 
   const browser = await chromium.launch({
     headless: true,
@@ -130,36 +136,57 @@ export async function createWebLoader(config) {
     }
   }
 
-  async function fetchPdf(sourceUrl, requestUrl = sourceUrl) {
-    let finalUrl = requestUrl;
-    let contentType = '';
-    let statusCode = null;
+  async function downloadPdf(requestUrl) {
+    const result = await fetchWithRedirects(
+      requestUrl,
+      { method: 'GET', headers: requestHeaders() },
+      config.fetchTimeout,
+    );
+    const { response } = result;
+    const contentType = response.headers.get('content-type') || '';
+    const statusCode = response.status;
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const buffer = await readResponseBuffer(response, config.maxPdfBytes);
+
+    return {
+      buffer,
+      finalUrl: result.finalUrl,
+      contentType: contentType || 'application/pdf',
+      statusCode,
+      etag: response.headers.get('etag') || '',
+      lastModified: response.headers.get('last-modified') || '',
+    };
+  }
+
+  async function fetchPdf(sourceUrl, requestUrl = sourceUrl, pages = null) {
+    let cacheEntry = null;
 
     try {
-      const result = await fetchWithRedirects(
-        requestUrl,
-        { method: 'GET', headers: requestHeaders() },
-        config.fetchTimeout,
-      );
-      const { response } = result;
-      finalUrl = result.finalUrl;
-      contentType = response.headers.get('content-type') || '';
-      statusCode = response.status;
-
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const buffer = await readResponseBuffer(response, config.maxPdfBytes);
-      const data = await pdfParse(buffer);
+      cacheEntry = await pdfCache.get(sourceUrl, () => downloadPdf(requestUrl));
+      const extracted = await extractPdfContent({
+        buffer: cacheEntry.buffer,
+        pages,
+        maxChars: config.maxChars,
+      });
 
       return {
-        page_content: (data.text || '').trim().slice(0, config.maxChars),
+        page_content: extracted.text,
         metadata: createMetadata({
           source: sourceUrl,
-          finalUrl,
-          title: `PDF (${data.numpages || 0} pages)`,
-          contentType: contentType || 'application/pdf',
-          statusCode,
+          finalUrl: cacheEntry.finalUrl,
+          title: `PDF (${extracted.totalPages} pages)`,
+          contentType: cacheEntry.contentType || 'application/pdf',
+          statusCode: cacheEntry.statusCode,
           browserRendered: false,
           type: 'pdf',
+          extra: {
+            total_pages: extracted.totalPages,
+            requested_pages: extracted.requestedPages,
+            extracted_pages: extracted.extractedPages,
+            extraction_mode: extracted.extractionMode,
+            cache_hit: cacheEntry.cacheHit,
+          },
         }),
       };
     } catch (error) {
@@ -167,12 +194,20 @@ export async function createWebLoader(config) {
         page_content: '',
         metadata: createMetadata({
           source: sourceUrl,
-          finalUrl,
-          contentType,
-          statusCode,
+          finalUrl: cacheEntry?.finalUrl || requestUrl,
+          contentType: cacheEntry?.contentType || '',
+          statusCode: cacheEntry?.statusCode ?? null,
           browserRendered: false,
           type: 'pdf',
           error: `PDF error: ${error.message}`,
+          extra: {
+            total_pages: Number.isInteger(error.totalPages) ? error.totalPages : null,
+            requested_pages: error.requestedPages || pages,
+            extracted_pages: error.extractedPages || [],
+            extraction_mode: pages ? 'selected_pages' : 'full_document',
+            cache_hit: cacheEntry?.cacheHit ?? false,
+            ...(error.invalidPages ? { invalid_pages: error.invalidPages } : {}),
+          },
         }),
       };
     }
@@ -191,7 +226,7 @@ export async function createWebLoader(config) {
     });
   }
 
-  async function fetchPage(url) {
+  async function fetchPage(url, pages = null) {
     const context = await newContext();
     const page = await context.newPage();
     let downloadTriggered = false;
@@ -230,10 +265,10 @@ export async function createWebLoader(config) {
       contentType = (await response?.headerValue('content-type')) || '';
 
       if (blockedNavigation) throw new Error(blockedNavigation);
-      if (downloadTriggered) return fetchPdf(url, finalUrl);
+      if (downloadTriggered) return fetchPdf(url, finalUrl, pages);
 
       if (contentType.toLowerCase().includes('application/pdf')) {
-        return fetchPdf(url, finalUrl);
+        return fetchPdf(url, finalUrl, pages);
       }
 
       await page
@@ -258,7 +293,7 @@ export async function createWebLoader(config) {
         }),
       };
     } catch (error) {
-      if (error.message.includes('Download is starting')) return fetchPdf(url, finalUrl);
+      if (error.message.includes('Download is starting')) return fetchPdf(url, finalUrl, pages);
       const currentUrl = page.url();
       if (/^https?:\/\//i.test(currentUrl)) finalUrl = currentUrl;
 
@@ -279,11 +314,14 @@ export async function createWebLoader(config) {
     }
   }
 
-  async function fetchUrl(url) {
+  async function fetchUrl(rawTarget) {
+    const target = normalizeTarget(rawTarget);
+    const { url, pages = null } = target;
+
     try {
       await validateUrl(url);
-      if (await isDownloadUrl(url)) return fetchPdf(url);
-      return fetchPage(url);
+      if (await isDownloadUrl(url)) return fetchPdf(url, url, pages);
+      return fetchPage(url, pages);
     } catch (error) {
       return {
         page_content: '',
@@ -299,11 +337,11 @@ export async function createWebLoader(config) {
     }
   }
 
-  async function fetchMany(urls) {
+  async function fetchMany(targets) {
     const results = [];
-    for (let offset = 0; offset < urls.length; offset += config.batchSize) {
-      const batch = urls.slice(offset, offset + config.batchSize);
-      const batchResults = await Promise.all(batch.map((url) => fetchUrl(url)));
+    for (let offset = 0; offset < targets.length; offset += config.batchSize) {
+      const batch = targets.slice(offset, offset + config.batchSize);
+      const batchResults = await Promise.all(batch.map((target) => fetchUrl(target)));
       results.push(...batchResults);
     }
     return results;
@@ -311,7 +349,11 @@ export async function createWebLoader(config) {
 
   return {
     fetchMany,
-    status: () => ({ browser: browserVersion }),
+    status: () => ({
+      browser: browserVersion,
+      pdf_cache_dir: config.pdfCacheDir,
+      pdf_cache_ttl_seconds: config.pdfCacheTtlSeconds,
+    }),
     close: () => browser.close(),
   };
 }

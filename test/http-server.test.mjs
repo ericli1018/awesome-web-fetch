@@ -55,7 +55,7 @@ test('POST passes valid URLs to fetchMany and returns results', async () => {
     config,
     fetchMany: async (urls) => {
       received = urls;
-      return [{ page_content: 'Example', metadata: { source: urls[0] } }];
+      return [{ page_content: 'Example', metadata: { source: urls[0].url } }];
     },
   }, async (baseUrl) => {
     const response = await fetch(baseUrl, {
@@ -67,7 +67,7 @@ test('POST passes valid URLs to fetchMany and returns results', async () => {
       body: JSON.stringify({ urls: ['https://example.com'] }),
     });
     assert.equal(response.status, 200);
-    assert.deepEqual(received, ['https://example.com']);
+    assert.deepEqual(received, [{ url: 'https://example.com', pages: null }]);
     const body = await response.json();
     assert.equal(body[0].page_content, 'Example');
   });
@@ -86,5 +86,32 @@ test('POST rejects too many URLs', async () => {
     assert.equal(response.status, 400);
     const body = await response.json();
     assert.match(body.error, /maximum is 2/);
+  });
+});
+
+test('POST forwards selected PDF pages to fetchMany', async () => {
+  let received;
+  await withServer({
+    config,
+    fetchMany: async (targets) => {
+      received = targets;
+      return [{ page_content: 'Selected page', metadata: { source: targets[0].url } }];
+    },
+  }, async (baseUrl) => {
+    const response = await fetch(baseUrl, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer secret',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        urls: [{ url: 'https://example.com/manual.pdf', pages: [2, 5, 2] }],
+      }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(received, [
+      { url: 'https://example.com/manual.pdf', pages: [2, 5] },
+    ]);
   });
 });

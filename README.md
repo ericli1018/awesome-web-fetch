@@ -1,6 +1,6 @@
 # web_fetch
 
-以 Node.js、Playwright 與 Chromium 實作的外部網頁/PDF 擷取服務，可作為 OpenWebUI External Web Loader 使用。
+以 Node.js、Playwright 與 Chromium 實作的外部網頁/PDF 擷取服務，可作為 OpenWebUI External Web Loader 或 Sidecar 使用。
 
 GitHub repository：`https://github.com/ericli1018/awesome-web-fetch`
 
@@ -10,6 +10,10 @@ GitHub repository：`https://github.com/ericli1018/awesome-web-fetch`
 - 使用 Playwright Chromium 載入 JavaScript 網頁。
 - 使用 stealth plugin 降低基本自動化特徵。
 - 自動辨識並解析 PDF。
+- PDF 未指定頁碼時抽取整份文件。
+- PDF 指定 `pages` 時只抽取指定頁面。
+- PDF 原始檔使用 Named Volume 暫存，後續指定頁碼查詢不必重新下載。
+- PDF metadata 提供總頁數、請求頁碼、實際抽取頁碼與 cache hit 狀態。
 - 支援內容長度、批次數、逾時與 PDF 大小限制。
 - 支援 Bearer API Key。
 - 預設阻擋 localhost、私有 IP、link-local 與 metadata 類型目標。
@@ -25,11 +29,11 @@ web_fetch/
 │   ├── config.mjs
 │   ├── http-server.mjs
 │   ├── loader.mjs
+│   ├── metadata.mjs
+│   ├── pdf-cache.mjs
+│   ├── pdf-extractor.mjs
 │   └── url-policy.mjs
 ├── test/
-│   ├── config.test.mjs
-│   ├── http-server.test.mjs
-│   └── url-policy.test.mjs
 ├── package.json
 ├── docker-compose.part.yaml
 ├── .env.example
@@ -40,18 +44,14 @@ web_fetch/
 
 ## 上傳至 GitHub
 
-在解壓縮後的專案目錄執行：
-
 ```bash
 git init
 git add .
-git commit -m "feat: initial web_fetch release"
+git commit -m "feat: release web_fetch v0.3.0"
 git branch -M main
 git remote add origin https://github.com/ericli1018/awesome-web-fetch.git
 git push -u origin main
 ```
-
-GitHub repository 必須先存在，且預設 branch 為 `main`。
 
 ## Docker Compose 使用
 
@@ -83,7 +83,7 @@ docker compose -f docker-compose.part.yaml logs -f web_fetch
 docker compose -f docker-compose.part.yaml restart web_fetch
 ```
 
-每次容器啟動會執行：
+每次容器啟動會：
 
 1. 安裝 Git 與 CA certificates。
 2. 初次執行時 clone repository。
@@ -93,20 +93,24 @@ docker compose -f docker-compose.part.yaml restart web_fetch
 6. 執行語法檢查。
 7. 啟動 `node index.mjs`。
 
-Git repository、npm cache、Chromium cache 均使用 Named Volume 保存。
+以下內容使用 Named Volume 保存：
+
+- Git repository。
+- npm cache。
+- Chromium cache。
+- PDF cache。
 
 ## API Key
-
-Compose 預設支援主機環境變數：
 
 ```bash
 export WEB_FETCH_API_KEY='replace-with-a-long-random-key'
 ```
 
-也可建立 `.env`：
+或建立 `.env`：
 
 ```dotenv
 WEB_FETCH_API_KEY=replace-with-a-long-random-key
+WEB_FETCH_GIT_COMMIT=
 ```
 
 若未設定，Compose 使用 `dummy`，此時 API 驗證會停用。正式環境不可使用 `dummy`。
@@ -119,7 +123,9 @@ WEB_FETCH_API_KEY=replace-with-a-long-random-key
 curl http://localhost:3005/healthz
 ```
 
-### 擷取網址
+### 一般網頁或整份 PDF
+
+URL 使用字串時，PDF 維持原本行為：抽取整份文件後依 `MAX_CHARS` 截斷。
 
 ```bash
 curl http://localhost:3005/ \
@@ -128,44 +134,209 @@ curl http://localhost:3005/ \
   -d '{
     "urls": [
       "https://example.com",
-      "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
+      "https://example.com/manual.pdf"
     ]
   }'
 ```
 
-輸出：
+也可以使用物件但不提供 `pages`：
 
 ```json
-[
-  {
-    "page_content": "...",
-    "metadata": {
-      "source": "https://example.com",
-      "final_url": "https://example.com/",
-      "title": "Example Domain",
-      "content_type": "text/html",
-      "status_code": 200,
-      "browser_rendered": true,
-      "type": "html"
+{
+  "urls": [
+    {
+      "url": "https://example.com/manual.pdf"
     }
-  }
-]
+  ]
+}
 ```
 
-### Metadata 欄位
+### 指定 PDF 頁碼
 
-每筆結果都會提供：
+`pages` 可使用單一正整數：
+
+```json
+{
+  "urls": [
+    {
+      "url": "https://example.com/manual.pdf",
+      "pages": 3
+    }
+  ]
+}
+```
+
+或正整數陣列：
+
+```json
+{
+  "urls": [
+    {
+      "url": "https://example.com/manual.pdf",
+      "pages": [2, 5, 8]
+    }
+  ]
+}
+```
+
+頁碼從 `1` 開始。重複頁碼會自動移除並保留首次出現順序。
+
+### HTML 回應
+
+```json
+{
+  "page_content": "...",
+  "metadata": {
+    "source": "https://example.com",
+    "final_url": "https://example.com/",
+    "title": "Example Domain",
+    "content_type": "text/html",
+    "status_code": 200,
+    "browser_rendered": true,
+    "type": "html"
+  }
+}
+```
+
+### 整份 PDF 回應
+
+```json
+{
+  "page_content": "...",
+  "metadata": {
+    "source": "https://example.com/manual.pdf",
+    "final_url": "https://cdn.example.com/manual.pdf",
+    "title": "PDF (20 pages)",
+    "content_type": "application/pdf",
+    "status_code": 200,
+    "browser_rendered": false,
+    "type": "pdf",
+    "total_pages": 20,
+    "requested_pages": null,
+    "extracted_pages": "all",
+    "extraction_mode": "full_document",
+    "cache_hit": false
+  }
+}
+```
+
+### 指定頁碼 PDF 回應
+
+```json
+{
+  "page_content": "...",
+  "metadata": {
+    "source": "https://example.com/manual.pdf",
+    "final_url": "https://cdn.example.com/manual.pdf",
+    "title": "PDF (20 pages)",
+    "content_type": "application/pdf",
+    "status_code": 200,
+    "browser_rendered": false,
+    "type": "pdf",
+    "total_pages": 20,
+    "requested_pages": [2, 5],
+    "extracted_pages": [2, 5],
+    "extraction_mode": "selected_pages",
+    "cache_hit": true
+  }
+}
+```
+
+### 頁碼超出範圍
+
+HTTP request 仍回傳批次結果，該 URL 的 `page_content` 為空，metadata 提供錯誤與頁碼資訊：
+
+```json
+{
+  "page_content": "",
+  "metadata": {
+    "source": "https://example.com/manual.pdf",
+    "final_url": "https://example.com/manual.pdf",
+    "content_type": "application/pdf",
+    "status_code": 200,
+    "browser_rendered": false,
+    "type": "pdf",
+    "error": "PDF error: Requested page 30 is out of range; PDF has 20 pages",
+    "total_pages": 20,
+    "requested_pages": [30],
+    "extracted_pages": [],
+    "invalid_pages": [30],
+    "extraction_mode": "selected_pages",
+    "cache_hit": true
+  }
+}
+```
+
+## PDF 快取
+
+PDF 下載成功後會保存：
+
+```text
+/data/pdf-cache/<URL SHA-256>.pdf
+/data/pdf-cache/<URL SHA-256>.json
+```
+
+JSON metadata 包含：
+
+- 原始 URL。
+- 最終 URL。
+- Content-Type。
+- HTTP status code。
+- ETag。
+- Last-Modified。
+- cache 時間。
+- PDF 檔案大小。
+
+Compose 使用：
+
+```yaml
+volumes:
+  - web_fetch_pdf_cache:/data/pdf-cache
+```
+
+預設快取有效時間：
+
+```yaml
+PDF_CACHE_TTL_SECONDS: "86400"
+```
+
+相同 URL 在 TTL 內再次查詢會直接讀取快取。變更 `pages` 不會重新下載 PDF。
+
+手動清除 PDF 快取：
+
+```bash
+docker volume rm web_fetch_pdf_cache
+```
+
+實際 volume 名稱可能包含 Compose project prefix，可先執行：
+
+```bash
+docker volume ls | grep web_fetch_pdf_cache
+```
+
+## Metadata 欄位
+
+所有結果：
 
 - `source`：原始請求 URL。
 - `final_url`：完成重新導向後的最終 URL。
 - `title`：頁面標題或 PDF 頁數說明。
-- `content_type`：HTTP `Content-Type` 的 media type，例如 `text/html`、`application/pdf`。
-- `status_code`：最終 HTTP 狀態碼；連線或 DNS 階段失敗時為 `null`。
+- `content_type`：HTTP Content-Type media type。
+- `status_code`：最終 HTTP 狀態碼；尚未取得 HTTP 回應時為 `null`。
 - `browser_rendered`：HTML 經 Chromium 渲染時為 `true`；PDF/direct fetch 為 `false`。
-- `type`：相容舊版使用的 `html` 或 `pdf`。
+- `type`：`html` 或 `pdf`。
 - `error`：失敗時提供錯誤訊息。
 
-OpenWebUI 與本服務使用同一個 Docker network 時，服務網址為：
+PDF 額外提供：
+
+- `total_pages`：PDF 總頁數。
+- `requested_pages`：使用者指定頁碼；未指定時為 `null`。
+- `extracted_pages`：指定頁碼陣列，或整份抽取時的 `all`。
+- `extraction_mode`：`full_document` 或 `selected_pages`。
+- `cache_hit`：是否直接使用既有 PDF 快取。
+- `invalid_pages`：指定頁碼超出範圍時提供。
+
+OpenWebUI 與本服務使用同一 Docker network 時，服務網址為：
 
 ```text
 http://web_fetch:3000
@@ -175,14 +346,10 @@ http://web_fetch:3000
 
 ### 自動追蹤 main
 
-Compose 預設：
-
 ```yaml
 GIT_BRANCH: "main"
 GIT_COMMIT: ""
 ```
-
-每次 restart 取得 `main` 最新版本。
 
 ### 固定 Commit
 
@@ -190,8 +357,6 @@ GIT_COMMIT: ""
 export WEB_FETCH_GIT_COMMIT='<commit-sha>'
 docker compose -f docker-compose.part.yaml up -d --force-recreate
 ```
-
-適合正式環境與 rollback。
 
 ### GitHub 暫時無法連線
 
@@ -203,19 +368,19 @@ UPDATE_REQUIRED: "false"
 
 Repository volume 已有版本時，Git 更新失敗會使用 cached revision 啟動。
 
-設定為 `true` 時，更新失敗會直接終止容器。
-
 ## 環境變數
 
 | 變數 | 預設值 | 說明 |
 |---|---:|---|
 | `PORT` | `3000` | HTTP listen port |
 | `API_KEY` | `dummy` | Bearer API Key；`dummy` 表示停用驗證 |
-| `BATCH_SIZE` | `3` | 每批同時處理的 URL 數 |
+| `BATCH_SIZE` | `3` | 每批同時處理 URL 數 |
 | `MAX_CHARS` | `10000` | 每筆輸出文字最大字元數 |
 | `MAX_URLS` | `20` | 單一請求最大 URL 數 |
 | `MAX_BODY_BYTES` | `262144` | Request body 最大 bytes |
-| `MAX_PDF_BYTES` | `20971520` | PDF 最大下載 bytes |
+| `MAX_PDF_BYTES` | `20971520` | 單一 PDF 最大下載 bytes |
+| `PDF_CACHE_DIR` | `/data/pdf-cache` | PDF 快取目錄 |
+| `PDF_CACHE_TTL_SECONDS` | `86400` | PDF 快取有效秒數 |
 | `GOTO_TIMEOUT` | `8000` | Playwright navigation timeout，毫秒 |
 | `WAIT_TIMEOUT` | `8000` | 主要內容 selector 等待時間，毫秒 |
 | `HEAD_TIMEOUT` | `5000` | HEAD 判斷 timeout，毫秒 |
@@ -226,14 +391,6 @@ Repository volume 已有版本時，Git 更新失敗會使用 cached revision �
 | `TIMEZONE` | `Asia/Taipei` | Chromium timezone |
 | `ACCEPT_LANGUAGE` | 繁中優先 | HTTP Accept-Language |
 | `USER_AGENT` | Chrome 151 | Browser 與 HTTP User-Agent |
-
-若需要擷取 Docker 內部服務、NAS 或內網網址，將：
-
-```yaml
-ALLOW_PRIVATE_NETWORK: "true"
-```
-
-此設定會降低 SSRF 防護，服務不應直接暴露至不受信任的網路。
 
 ## 本機開發
 
@@ -251,6 +408,7 @@ npm start
 
 - 首次建立容器需要下載 Debian 套件、npm 套件與 Chromium。
 - 因為不建立自訂 image，container recreate 後仍需重新安裝 Debian 系統套件。
-- `npm` 與 Chromium 下載會使用 Named Volume cache。
-- Stealth plugin 只能降低部分自動化特徵，不能保證通過所有反機器人系統。
+- PDF 快取會占用 Docker volume 空間；應依實際使用量定期清理。
+- 掃描型 PDF 沒有文字層時不會自動 OCR。
+- Stealth plugin 不能保證通過所有反機器人系統。
 - 動態登入、Captcha、Cloudflare challenge 或需要 Cookie 的網站不保證可擷取。

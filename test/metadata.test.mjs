@@ -50,3 +50,28 @@ test('createMetadata keeps required keys when response details are unavailable',
     },
   );
 });
+
+test('createMetadata appends PDF extraction and cache fields', () => {
+  const metadata = createMetadata({
+    source: 'https://example.com/file.pdf',
+    finalUrl: 'https://cdn.example.com/file.pdf',
+    title: 'PDF (10 pages)',
+    contentType: 'application/pdf',
+    statusCode: 200,
+    browserRendered: false,
+    type: 'pdf',
+    extra: {
+      total_pages: 10,
+      requested_pages: [2, 4],
+      extracted_pages: [2, 4],
+      extraction_mode: 'selected_pages',
+      cache_hit: true,
+    },
+  });
+
+  assert.equal(metadata.total_pages, 10);
+  assert.deepEqual(metadata.requested_pages, [2, 4]);
+  assert.deepEqual(metadata.extracted_pages, [2, 4]);
+  assert.equal(metadata.extraction_mode, 'selected_pages');
+  assert.equal(metadata.cache_hit, true);
+});

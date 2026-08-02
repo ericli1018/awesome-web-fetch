@@ -33,6 +33,8 @@ services:
       MAX_URLS: "20"
       MAX_BODY_BYTES: "262144"
       MAX_PDF_BYTES: "20971520"
+      PDF_CACHE_DIR: "/data/pdf-cache"
+      PDF_CACHE_TTL_SECONDS: "86400"
       GOTO_TIMEOUT: "8000"
       WAIT_TIMEOUT: "8000"
       HEAD_TIMEOUT: "5000"
@@ -48,6 +50,7 @@ services:
       - web_fetch_repository:/workspace/repository
       - web_fetch_npm_cache:/root/.npm
       - web_fetch_playwright_cache:/ms-playwright
+      - web_fetch_pdf_cache:/data/pdf-cache
 
     command:
       - /bin/bash
@@ -140,6 +143,7 @@ volumes:
   web_fetch_repository:
   web_fetch_npm_cache:
   web_fetch_playwright_cache:
+  web_fetch_pdf_cache:
 
 networks:
   ai_suite_network:

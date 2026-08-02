@@ -12,6 +12,7 @@ export function createMetadata({
   browserRendered,
   type,
   error,
+  extra,
 }) {
   const metadata = {
     source,
@@ -24,6 +25,7 @@ export function createMetadata({
 
   if (type) metadata.type = type;
   if (error) metadata.error = error;
+  if (extra && typeof extra === 'object') Object.assign(metadata, extra);
 
   return metadata;
 }

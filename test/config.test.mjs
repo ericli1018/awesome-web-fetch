@@ -26,3 +26,13 @@ test('loadConfig parses numeric and boolean environment values', () => {
 test('loadConfig rejects invalid positive integers', () => {
   assert.throws(() => loadConfig({ PORT: '0' }), /PORT must be a positive integer/);
 });
+
+test('loadConfig reads PDF cache settings', () => {
+  const config = loadConfig({
+    PDF_CACHE_DIR: '/cache/pdf',
+    PDF_CACHE_TTL_SECONDS: '7200',
+  });
+
+  assert.equal(config.pdfCacheDir, '/cache/pdf');
+  assert.equal(config.pdfCacheTtlSeconds, 7200);
+});

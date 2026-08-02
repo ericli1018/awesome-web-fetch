@@ -18,3 +18,12 @@ test('bootstrap never removes the repository volume mount point', async () => {
   );
   assert.match(compose, /git clone[\s\S]*?"\."/);
 });
+
+test('compose persists PDF cache and configures its TTL', async () => {
+  const compose = await readCompose();
+
+  assert.match(compose, /PDF_CACHE_DIR:\s*"\/data\/pdf-cache"/);
+  assert.match(compose, /PDF_CACHE_TTL_SECONDS:\s*"86400"/);
+  assert.match(compose, /web_fetch_pdf_cache:\/data\/pdf-cache/);
+  assert.match(compose, /\n\s{2}web_fetch_pdf_cache:\s*\n/);
+});

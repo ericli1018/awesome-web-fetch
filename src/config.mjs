@@ -24,6 +24,8 @@ export function loadConfig(env = process.env) {
     maxUrls: positiveInteger(env, 'MAX_URLS', 20),
     maxBodyBytes: positiveInteger(env, 'MAX_BODY_BYTES', 262144),
     maxPdfBytes: positiveInteger(env, 'MAX_PDF_BYTES', 20971520),
+    pdfCacheDir: env.PDF_CACHE_DIR || '/data/pdf-cache',
+    pdfCacheTtlSeconds: positiveInteger(env, 'PDF_CACHE_TTL_SECONDS', 86400),
     gotoTimeout: positiveInteger(env, 'GOTO_TIMEOUT', 8000),
     waitTimeout: positiveInteger(env, 'WAIT_TIMEOUT', 8000),
     headTimeout: positiveInteger(env, 'HEAD_TIMEOUT', 5000),

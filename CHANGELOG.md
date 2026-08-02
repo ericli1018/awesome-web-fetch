@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0 - 2026-08-01
+
+- PDF request 支援 `{ "url": "...", "pages": 3 }` 與 `pages` 陣列。
+- 未指定 `pages` 時維持整份 PDF 文字抽取行為。
+- 指定 `pages` 時只抽取指定頁面，頁碼採 1-based。
+- PDF metadata 新增 `total_pages`、`requested_pages`、`extracted_pages`、`extraction_mode`。
+- 新增 PDF 原始檔快取與 `cache_hit` metadata。
+- Compose 新增 `web_fetch_pdf_cache` Named Volume。
+- 新增 `PDF_CACHE_DIR` 與 `PDF_CACHE_TTL_SECONDS`。
+- 頁碼超出範圍時回傳 `invalid_pages` 與 PDF 總頁數。
+- `pdf-parse` 更新為 2.4.5，使用其 partial page extraction API。
+
 ## 0.2.0 - 2026-08-01
 
 - HTML 與 PDF metadata 新增 `content_type`、`final_url`、`status_code`。
